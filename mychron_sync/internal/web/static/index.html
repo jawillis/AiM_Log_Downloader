@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Datalogger sync</title>
+<style>
+  :root {
+    --paper: #edf0f3; --panel: #ffffff; --ink: #14181c; --muted: #56616c; --line: #d3d9df;
+    --flag-green: #19924b; --flag-amber: #e5a800; --flag-red: #cc3a2b; --flag-slate: #3f4b57;
+    --on-flag: #ffffff; --on-amber: #14181c;
+    --font: "Bahnschrift", "DIN Alternate", "DIN 1451 Std", "Roboto Condensed", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #12161a; --panel: #1a2026; --ink: #e8ecef; --muted: #93a0ab; --line: #2b343c;
+      --flag-green: #1f9d55; --flag-amber: #e5b01a; --flag-red: #d4493a; --flag-slate: #34404b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.45; }
+  body { padding: 0 0 env(safe-area-inset-bottom, 0); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px 40px; }
+  button { font: inherit; }
+  :focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+  /* The one memorable thing: a status band in flag colours. */
+  .band { position: relative; color: var(--on-flag); background: var(--flag-slate); padding: 28px 0 40px; transition: background-color .3s; }
+  .band .wrap { padding-bottom: 0; }
+  .band.idle { background: var(--flag-green); }
+  .band.syncing, .band.waiting { background: var(--flag-amber); color: var(--on-amber); }
+  .band.error, .band.unconfigured { background: var(--flag-red); }
+  /* Chequered edge: the finish flag, shown only when everything is saved. */
+  .band.idle::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 16px;
+    background: repeating-conic-gradient(var(--ink) 0 25%, var(--paper) 0 50%) 0 0 / 16px 16px;
+  }
+  h1 { margin: 0; font-size: clamp(1.9rem, 6vw, 3rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.01em; }
+  .msg { margin: 8px 0 0; font-size: 1.05rem; max-width: 60ch; }
+  .err { margin: 8px 0 0; font-size: .95rem; max-width: 70ch; padding: 8px 12px; background: rgba(0,0,0,.18); border-radius: 4px; }
+  .band.syncing .err, .band.waiting .err { background: rgba(0,0,0,.1); }
+
+  .progress { margin: 18px 0 0; max-width: 560px; }
+  .bar { height: 10px; background: rgba(0,0,0,.22); border-radius: 5px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: currentColor; transition: width .4s linear; }
+  .progress p { margin: 6px 0 0; font-size: .95rem; font-variant-numeric: tabular-nums; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 0; }
+  .btn { border: 2px solid currentColor; background: transparent; color: inherit; padding: 9px 18px; border-radius: 4px; cursor: pointer; font-weight: 600; min-height: 44px; }
+  .btn.primary { background: var(--on-flag); color: var(--ink); border-color: var(--on-flag); }
+  .band.syncing .btn.primary, .band.waiting .btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; margin: 26px 0 8px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel); }
+  .facts div { padding: 14px 16px; border-right: 1px solid var(--line); }
+  .facts div:last-child { border-right: 0; }
+  .facts dt { color: var(--muted); font-size: .9rem; }
+  .facts dd { margin: 2px 0 0; font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  h2 { font-size: 1.25rem; margin: 30px 0 10px; font-weight: 600; }
+  .tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-weight: 600; color: var(--muted); font-size: .9rem; background: var(--panel); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; }
+  td .file { display: block; color: var(--muted); font-size: .85rem; }
+  .unset { color: var(--muted); font-style: italic; }
+  .tag { display: inline-block; margin-left: 8px; padding: 1px 8px; border: 1px solid var(--flag-amber); border-radius: 10px; font-size: .8rem; }
+  .empty { padding: 28px 18px; color: var(--muted); max-width: 60ch; }
+  footer { margin: 26px 0 0; color: var(--muted); font-size: .9rem; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: end; margin: 0 0 10px; }
+  .filters label { display: flex; flex-direction: column; gap: 3px; font-size: .9rem; color: var(--muted); }
+  .filters label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); min-height: 44px; font-size: 1rem; }
+  .filters input[type=checkbox] { width: 20px; height: 20px; }
+  select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; min-height: 44px; }
+  .count { margin: 0 0 8px; color: var(--muted); font-size: .95rem; }
+  .linkbtn { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; font: inherit; }
+  .sub { display: block; color: var(--muted); font-size: .85rem; }
+  .tag.best { border-color: var(--flag-green); }
+  .none { color: var(--muted); }
+  .nowrap { white-space: nowrap; }
+  .show-sm { display: none; }
+  .nodriver .drv { display: none; }
+
+  @media (max-width: 640px) {
+    .hide-sm { display: none; }
+    th, td { padding: 9px 6px; white-space: normal; font-size: .95rem; }
+    td.nowrap { white-space: nowrap; }
+    td .file { display: none; }
+    .show-sm { display: block; }
+    .facts div { border-right: 0; border-bottom: 1px solid var(--line); }
+    .facts div:last-child { border-bottom: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { .band, .bar > i { transition: none; } }
+</style>
+</head>
+<body>
+<header id="band" class="band" aria-live="polite">
+  <div class="wrap">
+    <h1 id="headline">Connecting…</h1>
+    <p class="msg" id="message"></p>
+    <p class="err" id="error" hidden></p>
+    <div class="progress" id="progress" hidden>
+      <div class="bar"><i id="barfill"></i></div>
+      <p id="progtext"></p>
+    </div>
+    <div class="controls">
+      <button class="btn primary" id="syncBtn" type="button">Sync now</button>
+      <button class="btn" id="pauseBtn" type="button">Pause syncing</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <dl class="facts">
+    <div><dt>Sessions saved</dt><dd id="fTotal">0</dd></div>
+    <div><dt>Saved by last sync</dt><dd id="fNew">0</dd></div>
+    <div><dt>Last sync</dt><dd id="fSync">Never</dd></div>
+    <div><dt>Logger last seen</dt><dd id="fSeen">Never</dd></div>
+  </dl>
+
+  <h2>Saved sessions</h2>
+  <div class="filters">
+    <label>Short sessions
+      <select id="fShort">
+        <option value="0">Show all</option>
+        <option value="60">Hide under 1 minute</option>
+        <option value="120">Hide under 2 minutes</option>
+        <option value="300">Hide under 5 minutes</option>
+      </select>
+    </label>
+    <label>Track
+      <select id="fTrack"><option value="">All tracks</option></select>
+    </label>
+    <label>Sort by
+      <select id="fSort">
+        <option value="new">Newest first</option>
+        <option value="best">Fastest lap</option>
+        <option value="long">Longest session</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="fTimed"> Only sessions with a lap time</label>
+  </div>
+  <p class="count" id="count"></p>
+  <div class="tablewrap">
+    <table id="table" class="nodriver">
+      <thead>
+        <tr>
+          <th>Session</th><th>Track</th><th class="num hide-sm">Laps</th><th class="num">Best lap</th>
+          <th class="num hide-sm">Length</th><th>Recorded</th><th class="drv hide-sm">Driver</th>
+          <th class="hide-sm">Downloaded</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="empty" id="empty" hidden></p>
+  </div>
+  <footer id="foot"></footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var HEADLINES = {
+    unconfigured: "Logger address not set", paused: "Syncing paused", offline: "Waiting for the logger",
+    waiting: "Logger found", syncing: "Downloading", idle: "Up to date", error: "Sync failed"
+  };
+  var last = { total: -1, lastSync: null };
+  var paused = false;
+
+  function api(path, opts) { return fetch("api/" + path, opts).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }); }
+
+  function ago(iso) {
+    if (!iso) return "Never";
+    var s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 10) return "Just now";
+    if (s < 60) return Math.round(s) + " s ago";
+    if (s < 3600) return Math.round(s / 60) + " min ago";
+    if (s < 86400) return Math.round(s / 3600) + " h ago";
+    return Math.round(s / 86400) + " d ago";
+  }
+  function mb(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+  // The logger reports DD/MM/YYYY; show it unambiguously.
+  function recorded(e) {
+    var p = (e.date || "").split("/");
+    if (p.length !== 3) return e.date || "";
+    return p[2] + "-" + p[1] + "-" + p[0] + " " + (e.hour || "").slice(0, 5);
+  }
+  function el(tag, text, cls) { var n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; }
+
+  function renderStatus(data) {
+    var s = data.status, state = s.state;
+    paused = !!s.paused;
+    $("band").className = "band " + state;
+    $("headline").textContent = HEADLINES[state] || state;
+    $("message").hidden = !!(s.progress && state === "syncing"); // the progress line says it already
+    $("message").textContent = s.message || "";
+    var errEl = $("error");
+    errEl.hidden = !(s.last_error && state === "error");
+    errEl.textContent = s.last_error || "";
+
+    var p = s.progress, prog = $("progress");
+    prog.hidden = !(p && state === "syncing");
+    if (!prog.hidden) {
+      var pct = p.total ? Math.min(100, (p.done / p.total) * 100) : 0;
+      $("barfill").style.width = pct + "%";
+      $("progtext").textContent = "Session " + p.index + " of " + p.count + ": " + p.name + ", " + mb(p.done) + " of " + mb(p.total);
+    }
+    $("syncBtn").disabled = paused || !s.online || state === "syncing" || state === "waiting";
+    var pb = $("pauseBtn");
+    pb.textContent = paused ? "Resume syncing" : "Pause syncing";
+    pb.disabled = state === "unconfigured";
+
+    $("fTotal").textContent = s.total;
+    $("fNew").textContent = s.last_new;
+    $("fSync").textContent = ago(s.last_sync);
+    $("fSeen").textContent = s.online ? "Now" : ago(s.last_seen);
+    $("foot").textContent = (s.host ? "Logger address " + s.host + ". " : "") + "Version " + data.version + ".";
+
+    if (s.total !== last.total || s.last_sync !== last.lastSync) {
+      last.total = s.total; last.lastSync = s.last_sync;
+      loadSessions();
+    }
+  }
+
+  var all = [];
+  var DEFAULTS = { short: 0, track: "", sort: "new", timed: true };
+  var F = loadFilters();
+  function loadFilters() {
+    try { var v = JSON.parse(localStorage.getItem("mychron.filters.v2")); if (v) return Object.assign({}, DEFAULTS, v); } catch (e) {}
+    return Object.assign({}, DEFAULTS);
+  }
+  function saveFilters() { try { localStorage.setItem("mychron.filters.v2", JSON.stringify(F)); } catch (e) {} }
+
+  function fmtLap(ms) {
+    if (!(ms > 0)) return "";
+    var m = Math.floor(ms / 60000), r = ms % 60000, sec = Math.floor(r / 1000), milli = r % 1000;
+    var tail = String(milli).padStart(3, "0");
+    return m ? m + ":" + String(sec).padStart(2, "0") + "." + tail : sec + "." + tail;
+  }
+  function fmtLen(ms) {
+    if (!(ms > 0)) return "";
+    var t = Math.round(ms / 1000), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+    var two = function (n) { return String(n).padStart(2, "0"); };
+    return h ? h + ":" + two(m) + ":" + two(sec) : m + ":" + two(sec);
+  }
+
+  // A session is "short" if it has no laps at all, or ran for less than the chosen time.
+  function isShort(e) {
+    if (!F.short) return false;
+    return e.laps === "0" || (e.duration_ms > 0 && e.duration_ms < F.short * 1000);
+  }
+  function trackKey(e) { return e.track_shown || "__none"; }
+  function visible(e) {
+    return !isShort(e) && (!F.track || trackKey(e) === F.track) && (!F.timed || e.best_lap_ms > 0);
+  }
+  function sorted(list) {
+    var l = list.slice();
+    if (F.sort === "best") {
+      l.sort(function (a, b) {
+        var x = a.best_lap_ms > 0 ? a.best_lap_ms : Infinity, y = b.best_lap_ms > 0 ? b.best_lap_ms : Infinity;
+        return x === y ? b.id - a.id : x - y;
+      });
+    } else if (F.sort === "long") {
+      l.sort(function (a, b) { return (b.duration_ms || 0) - (a.duration_ms || 0); });
+    }
+    return l;
+  }
+
+  function fillTrackSelect() {
+    var sel = $("fTrack"), names = {}, blank = false;
+    all.forEach(function (e) { if (e.track_shown) names[e.track_shown] = 1; else blank = true; });
+    var opts = Object.keys(names).sort();
+    sel.textContent = "";
+    var add = function (v, t) { var o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); };
+    add("", "All tracks");
+    opts.forEach(function (n) { add(n, n); });
+    if (blank) add("__none", "Track not set");
+    if (F.track && !Array.prototype.some.call(sel.options, function (o) { return o.value === F.track; })) F.track = "";
+    sel.value = F.track;
+  }
+
+  function render() {
+    var shown = sorted(all.filter(visible)), hidden = all.length - all.filter(visible).length;
+    var drivers = {};
+    all.forEach(function (e) { drivers[(e.driver || "") + "|" + (e.vehicle || "")] = 1; });
+    $("table").className = Object.keys(drivers).length > 1 ? "" : "nodriver";
+
+    var count = $("count"); count.textContent = "";
+    if (all.length) {
+      count.appendChild(document.createTextNode("Showing " + shown.length + " of " + all.length + " sessions."));
+      if (hidden > 0) {
+        count.appendChild(document.createTextNode(" " + hidden + " hidden by the filters. "));
+        var b = el("button", "Show all", "linkbtn"); b.type = "button";
+        b.addEventListener("click", function () { F = { short: 0, track: "", sort: F.sort, timed: false }; syncControls(); saveFilters(); render(); });
+        count.appendChild(b);
+      }
+    }
+
+    var body = $("rows"); body.textContent = "";
+    var empty = $("empty");
+    empty.hidden = shown.length > 0;
+    empty.textContent = all.length === 0
+      ? "No sessions saved yet. When the logger joins the network, everything on it is downloaded, newest first."
+      : "Every session is hidden by the filters.";
+
+    shown.forEach(function (e) {
+      var tr = document.createElement("tr");
+
+      var c1 = el("td", e.name);
+      c1.appendChild(el("span", e.file + ", " + mb(e.bytes), "file"));
+      if (e.status === "raw_only") { var t = el("span", "Saved as received", "tag"); t.title = e.note || ""; c1.appendChild(t); }
+      else if (e.note) { var t2 = el("span", "Check file", "tag"); t2.title = e.note; c1.appendChild(t2); }
+      tr.appendChild(c1);
+
+      var ct = el("td", e.track_shown || "Not set");
+      if (e.track_inferred) { var g = el("span", "Guessed from position", "sub"); g.title = "The logger left the track name blank. This session was recorded within 1 km of other sessions named " + e.track_shown + "."; ct.appendChild(g); }
+      tr.appendChild(ct);
+
+      tr.appendChild(el("td", e.laps || "", "num hide-sm"));
+
+      var cb = el("td", null, "num");
+      if (e.best_lap_ms > 0) {
+        var tm = el("span", fmtLap(e.best_lap_ms));
+        if (e.best_lap_index) tm.title = "The logger reports lap " + e.best_lap_index + " of " + e.laps + " as the best.";
+        cb.appendChild(tm);
+        if (e.track_best) { var tb = el("span", "Track best", "tag best"); tb.title = "Fastest lap saved for " + e.track_shown + "."; cb.appendChild(tb); }
+      } else {
+        var no = el("span", "None", "none"); no.title = "The logger did not record a lap time for this session."; cb.appendChild(no);
+      }
+      cb.appendChild(el("span", (e.laps || "0") + (e.laps === "1" ? " lap" : " laps"), "sub show-sm"));
+      tr.appendChild(cb);
+
+      tr.appendChild(el("td", fmtLen(e.duration_ms), "num hide-sm"));
+
+      var rec = el("td", null, e.date_suspect ? "unset" : "nowrap");
+      if (e.date_suspect) rec.textContent = "Logger clock not set";
+      else { var dh = recorded(e).split(" "); rec.appendChild(document.createTextNode(dh[0])); if (dh[1]) rec.appendChild(el("span", dh[1], "sub")); }
+      if (e.date_suspect) rec.title = "The logger reported " + e.date + " " + e.hour + ", which looks like an unset clock.";
+      tr.appendChild(rec);
+
+      tr.appendChild(el("td", (e.driver || "") + (e.vehicle ? " (" + e.vehicle + ")" : ""), "drv hide-sm"));
+      var dl = el("td", ago(e.downloaded_at), "hide-sm"); dl.title = new Date(e.downloaded_at).toLocaleString(); tr.appendChild(dl);
+      body.appendChild(tr);
+    });
+  }
+
+  function syncControls() {
+    $("fShort").value = String(F.short); $("fSort").value = F.sort; $("fTimed").checked = !!F.timed; $("fTrack").value = F.track;
+  }
+  $("fShort").addEventListener("change", function () { F.short = parseInt(this.value, 10) || 0; saveFilters(); render(); });
+  $("fTrack").addEventListener("change", function () { F.track = this.value; saveFilters(); render(); });
+  $("fSort").addEventListener("change", function () { F.sort = this.value; saveFilters(); render(); });
+  $("fTimed").addEventListener("change", function () { F.timed = this.checked; saveFilters(); render(); });
+
+  function loadSessions() {
+    api("sessions").then(function (d) {
+      all = d.sessions || [];
+      fillTrackSelect();
+      syncControls();
+      render();
+    }).catch(function () {});
+  }
+
+  function poll() { api("status").then(renderStatus).catch(function () { $("message").textContent = "Lost contact with the add-on. Retrying…"; }); }
+  function post(path) { return api(path, { method: "POST" }).then(poll); }
+
+  $("syncBtn").addEventListener("click", function () { post("sync"); });
+  $("pauseBtn").addEventListener("click", function () { post(paused ? "resume" : "pause"); });
+
+  poll();
+  setInterval(function () { if (!document.hidden) poll(); }, 2000);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) poll(); });
+})();
+</script>
+</body>
+</html>

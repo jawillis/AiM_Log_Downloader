@@ -1,0 +1,43 @@
+name: MyChron Sync
+version: "0.2.1"
+slug: mychron_sync
+description: Downloads new sessions from an AiM MyChron or Solo 2 DL logger whenever it joins the network.
+url: https://github.com/CHANGEME/mychron-sync
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: auto
+# The logger lives on the LAN, so the add-on shares the host's network.
+host_network: true
+# Lets the add-on publish sensors and an event to Home Assistant.
+homeassistant_api: true
+# The web page is shown in the sidebar through Home Assistant's own login.
+ingress: true
+ingress_port: 8099
+ingress_panel: true
+panel_icon: mdi:go-kart
+panel_title: Datalogger
+watchdog: "http://[HOST]:[PORT:8099]/healthz"
+# Sessions are written under /share so the Samba add-on can serve them.
+map:
+  - share:rw
+options:
+  logger_host: ""
+  poll_interval_seconds: 15
+  resync_interval_minutes: 5
+  settle_seconds: 5
+  probe: auto
+  output_dir: /share/datalogger
+  keep_raw: false
+  log_level: info
+schema:
+  logger_host: str
+  poll_interval_seconds: int(5,300)
+  resync_interval_minutes: int(1,120)
+  settle_seconds: int(0,60)
+  probe: list(auto|udp|tcp)
+  output_dir: str
+  keep_raw: bool
+  log_level: list(debug|info|warn|error)

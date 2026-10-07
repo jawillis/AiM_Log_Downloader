@@ -1,0 +1,5 @@
+/mychron-sync
+*.xrk
+*.xrz
+*.hrz
+.mychron-sync/
