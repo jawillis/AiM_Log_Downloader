@@ -64,6 +64,37 @@ column the logger reports) are kept in `.mychron-sync/manifest.json`. Sessions
 saved by an earlier version are filled in the next time the add-on lists the
 logger, without downloading anything again.
 
+## Lapline viewer
+
+Each saved session has a **Lapline** link that opens it in
+[Lapline](https://github.com/jawillis/Lapline), a viewer for AiM log files that
+runs in your browser: track map, lap overlays, time delta, G-G diagram, laps and
+channels tables. The data stays between your browser and Home Assistant.
+
+- **Compare sessions:** tick the boxes next to sessions from the same track and
+  choose **Compare in Lapline** (up to 6). Lapline starts over if you open a
+  session from a different track, so the page only allows one track at a time.
+- **Back to the list:** use the *Sessions* button at the top left of Lapline.
+- **Download:** each row also has a **Download** link for the `.xrk` file, handy
+  for Race Studio on a computer that can't reach the share. Only sessions
+  saved by this add-on can be downloaded.
+- **On a phone** each session shows a Lapline link under its name; selecting
+  several sessions to compare is only offered on larger screens.
+- The **Map** tab in Lapline loads its map library and satellite tiles from the
+  internet, so it needs a connection on the device you're browsing with. The
+  other views work offline.
+- Sessions marked "Saved as received" could not be decompressed, so they have no
+  Lapline link, only Download.
+
+Lapline is not part of this add-on's code. It is fetched from
+`github.com/jawillis/Lapline` while the add-on is built, at a specific commit
+(`LAPLINE_REF` near the top of the Dockerfile). If GitHub can't be reached
+during the build, the add-on installs without it and the Lapline links
+disappear. To pick up a newer Lapline, change `LAPLINE_REF` to the commit (or a
+branch name such as `main`), bump the version, and **Rebuild**. Home Assistant
+may reuse its cached copy when the Dockerfile hasn't changed, so changing the
+line is what forces a fresh download.
+
 ## Pausing
 
 Use **Pause syncing** on the add-on page before you connect Race Studio. While

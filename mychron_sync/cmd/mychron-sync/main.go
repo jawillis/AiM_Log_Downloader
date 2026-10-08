@@ -76,6 +76,13 @@ func main() {
 	}
 }
 
+func envOr(k, d string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return d
+}
+
 func newLogger(level string) *slog.Logger {
 	var l slog.Level
 	_ = l.UnmarshalText([]byte(level))
@@ -87,6 +94,7 @@ func serve(args []string) error {
 	host := fs.String("host", "", "logger IP address (overrides the add-on option)")
 	out := fs.String("out", "", "output directory (overrides the add-on option)")
 	listen := fs.String("listen", "", "address for the status page (default :8099 in Home Assistant, else 127.0.0.1:8099)")
+	lapline := fs.String("lapline-dir", envOr("LAPLINE_DIR", "/opt/lapline"), "folder with the Lapline viewer (optional)")
 	allowAny := fs.Bool("allow-any-client", false, "accept web requests from any address (local development only)")
 	fs.Parse(args)
 
@@ -150,8 +158,11 @@ func serve(args []string) error {
 	go eng.Run(ctx)
 
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           web.New(web.Deps{Engine: eng, Manifest: man, Version: version, AllowAny: *allowAny}),
+		Addr: addr,
+		Handler: web.New(web.Deps{
+			Engine: eng, Manifest: man, Version: version, AllowAny: *allowAny,
+			FilesDir: opts.OutputDir, LaplineDir: *lapline,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

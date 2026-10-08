@@ -8,19 +8,19 @@
   :root {
     --paper: #edf0f3; --panel: #ffffff; --ink: #14181c; --muted: #56616c; --line: #d3d9df;
     --flag-green: #19924b; --flag-amber: #e5a800; --flag-red: #cc3a2b; --flag-slate: #3f4b57;
-    --on-flag: #ffffff; --on-amber: #14181c;
+    --on-flag: #ffffff; --on-amber: #14181c; --link: #1b64a8;
     --font: "Bahnschrift", "DIN Alternate", "DIN 1451 Std", "Roboto Condensed", system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --paper: #12161a; --panel: #1a2026; --ink: #e8ecef; --muted: #93a0ab; --line: #2b343c;
-      --flag-green: #1f9d55; --flag-amber: #e5b01a; --flag-red: #d4493a; --flag-slate: #34404b;
+      --flag-green: #1f9d55; --flag-amber: #e5b01a; --flag-red: #d4493a; --flag-slate: #34404b; --link: #6cb2f0;
     }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.45; }
   body { padding: 0 0 env(safe-area-inset-bottom, 0); }
-  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px 40px; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 16px 40px; }
   button { font: inherit; }
   :focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
 
@@ -81,18 +81,38 @@
   .tag.best { border-color: var(--flag-green); }
   .none { color: var(--muted); }
   .nowrap { white-space: nowrap; }
+  td a { color: var(--link); font-weight: 600; text-decoration: none; margin-right: 12px; }
+  td a:hover { text-decoration: underline; }
+  th.sel, td.sel { width: 1%; padding-right: 0; }
+  td.sel input { width: 20px; height: 20px; vertical-align: middle; }
+  .nolap .sel, .nolap .act, .nolap .mact { display: none; }
+  a.mact { display: none; }
+  .comparebar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 10px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-left: 6px solid var(--flag-amber); }
+  .comparebar[hidden] { display: none; }
+  .comparebar .txt { flex: 1 1 240px; }
+  .cbtn { font: inherit; font-weight: 600; min-height: 44px; padding: 9px 18px; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; border: 2px solid var(--ink); background: transparent; color: var(--ink); }
+  a.cbtn.go { background: var(--ink); color: var(--paper); }
+  a.cbtn.go[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
   .show-sm { display: none; }
   .nodriver .drv { display: none; }
 
+  @media (max-width: 1240px) { .hide-md { display: none; } }
   @media (max-width: 640px) {
     .hide-sm { display: none; }
-    th, td { padding: 9px 6px; white-space: normal; font-size: .95rem; }
+    th, td { padding: 9px 5px; white-space: normal; font-size: .9rem; }
     td.nowrap { white-space: nowrap; }
     td .file { display: none; }
+    td a.dl { display: none; }
+    .act, th.act { display: none; }
+    a.mact { display: block; margin: 2px 0 0; font-size: .9rem; }
+    .sel, th.sel { display: none; }
+    .tag { display: block; width: max-content; margin: 3px 0 0 auto; white-space: nowrap; font-size: .72rem; padding: 0 6px; }
+    .comparebar { display: none !important; }
     .show-sm { display: block; }
     .facts div { border-right: 0; border-bottom: 1px solid var(--line); }
     .facts div:last-child { border-bottom: 0; }
   }
+  @media (max-width: 380px) { th, td { padding: 9px 3px; } }
   @media (prefers-reduced-motion: reduce) { .band, .bar > i { transition: none; } }
 </style>
 </head>
@@ -144,13 +164,18 @@
     <label class="check"><input type="checkbox" id="fTimed"> Only sessions with a lap time</label>
   </div>
   <p class="count" id="count"></p>
+  <div class="comparebar" id="compareBar" hidden>
+    <span class="txt" id="compareText"></span>
+    <a class="cbtn go" id="compareGo" href="#">Open in Lapline</a>
+    <button class="cbtn" id="compareClear" type="button">Clear</button>
+  </div>
   <div class="tablewrap">
-    <table id="table" class="nodriver">
+    <table id="table" class="nodriver nolap">
       <thead>
         <tr>
-          <th>Session</th><th>Track</th><th class="num hide-sm">Laps</th><th class="num">Best lap</th>
+          <th class="sel"></th><th>Session</th><th>Track</th><th class="num hide-sm">Laps</th><th class="num">Best lap</th>
           <th class="num hide-sm">Length</th><th>Recorded</th><th class="drv hide-sm">Driver</th>
-          <th class="hide-sm">Downloaded</th>
+          <th class="hide-sm hide-md">Downloaded</th><th class="act">Open</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
@@ -194,6 +219,7 @@
   function renderStatus(data) {
     var s = data.status, state = s.state;
     paused = !!s.paused;
+    if (hasLapline !== !!data.lapline) { hasLapline = !!data.lapline; render(); }
     $("band").className = "band " + state;
     $("headline").textContent = HEADLINES[state] || state;
     $("message").hidden = !!(s.progress && state === "syncing"); // the progress line says it already
@@ -227,6 +253,9 @@
   }
 
   var all = [];
+  var hasLapline = false;
+  var picked = [];            // saved file names ticked for comparing, in tick order
+  var MAX_COMPARE = 6;
   var DEFAULTS = { short: 0, track: "", sort: "new", timed: true };
   var F = loadFilters();
   function loadFilters() {
@@ -287,7 +316,7 @@
     var shown = sorted(all.filter(visible)), hidden = all.length - all.filter(visible).length;
     var drivers = {};
     all.forEach(function (e) { drivers[(e.driver || "") + "|" + (e.vehicle || "")] = 1; });
-    $("table").className = Object.keys(drivers).length > 1 ? "" : "nodriver";
+    $("table").className = (Object.keys(drivers).length > 1 ? "" : "nodriver") + (hasLapline ? "" : " nolap");
 
     var count = $("count"); count.textContent = "";
     if (all.length) {
@@ -310,8 +339,18 @@
     shown.forEach(function (e) {
       var tr = document.createElement("tr");
 
+      var csel = el("td", null, "sel");
+      if (e.status === "ok") {
+        var cb0 = document.createElement("input"); cb0.type = "checkbox"; cb0.checked = picked.indexOf(e.file) >= 0;
+        cb0.setAttribute("aria-label", "Select " + e.name + " to compare");
+        cb0.addEventListener("change", function () { togglePick(e.file, this); });
+        csel.appendChild(cb0);
+      }
+      tr.appendChild(csel);
+
       var c1 = el("td", e.name);
       c1.appendChild(el("span", e.file + ", " + mb(e.bytes), "file"));
+      if (e.status === "ok") { var mo = el("a", "Lapline", "mact"); mo.href = "lapline/?open=" + encodeURIComponent(e.file); c1.appendChild(mo); }
       if (e.status === "raw_only") { var t = el("span", "Saved as received", "tag"); t.title = e.note || ""; c1.appendChild(t); }
       else if (e.note) { var t2 = el("span", "Check file", "tag"); t2.title = e.note; c1.appendChild(t2); }
       tr.appendChild(c1);
@@ -343,10 +382,46 @@
       tr.appendChild(rec);
 
       tr.appendChild(el("td", (e.driver || "") + (e.vehicle ? " (" + e.vehicle + ")" : ""), "drv hide-sm"));
-      var dl = el("td", ago(e.downloaded_at), "hide-sm"); dl.title = new Date(e.downloaded_at).toLocaleString(); tr.appendChild(dl);
+      var dl = el("td", ago(e.downloaded_at), "hide-sm hide-md"); dl.title = new Date(e.downloaded_at).toLocaleString(); tr.appendChild(dl);
+
+      var act = el("td", null, "act nowrap");
+      if (e.status === "ok") { var o = el("a", "Lapline"); o.href = "lapline/?open=" + encodeURIComponent(e.file); o.title = "View " + e.name + " in Lapline"; act.appendChild(o); }
+      var d = el("a", "Download", "dl"); d.href = "files/" + encodeURIComponent(e.file) + "?download=1"; act.appendChild(d);
+      tr.appendChild(act);
       body.appendChild(tr);
     });
+    renderCompare();
   }
+
+  function entryFor(file) { for (var i = 0; i < all.length; i++) if (all[i].file === file) return all[i]; return null; }
+
+  function togglePick(file, box) {
+    var i = picked.indexOf(file);
+    if (i >= 0) picked.splice(i, 1);
+    else if (picked.length >= MAX_COMPARE) { box.checked = false; renderCompare("You can compare up to " + MAX_COMPARE + " sessions at once."); return; }
+    else picked.push(file);
+    renderCompare();
+  }
+
+  // Lapline starts over when a session from a different track is opened, so only allow one track.
+  function renderCompare(warn) {
+    var bar = $("compareBar"), go = $("compareGo"), txt = $("compareText");
+    picked = picked.filter(function (f) { return entryFor(f); });
+    bar.hidden = !hasLapline || picked.length === 0;
+    if (bar.hidden) return;
+    var tracks = {};
+    picked.forEach(function (f) { tracks[entryFor(f).track_shown || "Track not set"] = 1; });
+    var sameTrack = Object.keys(tracks).length === 1;
+    var hiddenCount = picked.filter(function (f) { return !visible(entryFor(f)); }).length;
+    txt.textContent = warn || (sameTrack
+      ? picked.length + (picked.length === 1 ? " session selected." : " sessions selected.") + (hiddenCount ? " " + hiddenCount + " hidden by the filters." : "")
+      : "Pick sessions from the same track to compare. Selected: " + Object.keys(tracks).join(", ") + ".");
+    go.textContent = picked.length === 1 ? "Open in Lapline" : "Compare in Lapline";
+    if (sameTrack) { go.href = "lapline/?" + picked.map(function (f) { return "open=" + encodeURIComponent(f); }).join("&"); go.removeAttribute("aria-disabled"); }
+    else { go.removeAttribute("href"); go.setAttribute("aria-disabled", "true"); }
+  }
+  $("compareClear").addEventListener("click", function () { picked = []; render(); });
+  $("compareGo").addEventListener("click", function (ev) { if (this.getAttribute("aria-disabled") === "true") ev.preventDefault(); });
 
   function syncControls() {
     $("fShort").value = String(F.short); $("fSort").value = F.sort; $("fTimed").checked = !!F.timed; $("fTrack").value = F.track;

@@ -5,6 +5,7 @@ Solo 2 DL datalogger as soon as it joins your network, for example when you roll
 back into the pits and the logger reconnects to the trailer's Wi-Fi.
 
 - Saves each session as an `.xrk` file on a share you can reach from any computer
+- Opens any session in [Lapline](https://github.com/jawillis/Lapline) (a browser-based AiM log viewer) with one click, or compares several from the same track
 - Shows best lap, length and track for every session, hides the false starts, and marks your best lap at each track
 - Detects the logger coming and going, retries when the logger's Wi-Fi misbehaves
 - Web page in the Home Assistant sidebar, protected by your Home Assistant login
@@ -23,23 +24,30 @@ built on the device.
 1. Install the *Samba share* add-on in Home Assistant and open its `addons` share.
 2. Copy the `mychron_sync` folder into it.
 3. Settings, Add-ons, Add-on Store. *MyChron Sync* appears under *Local add-ons*.
-   If it doesn't, open the menu (top right) and choose *Check for updates*, then reload the page.
+   If it doesn't, open the menu (top right), choose *Check for updates*, and reload the page.
 4. Install it, set `logger_host` on the Configuration tab, then start it.
 
 **Updating a local install.** Replace the `mychron_sync` folder on the share
 (Finder can fail on folder copies; see below), then open the add-on's page, use
-the three-dot menu, and choose **Rebuild**. *Check for updates* does not reliably
-notice changes to local add-ons; Rebuild makes Home Assistant re-read
-`config.yaml`. When it sees the new version number, the **Update** button
+the three-dot menu, and choose **Rebuild**. Rebuild makes Home Assistant re-read
+`config.yaml`; when it sees the new version number, the **Update** button
 becomes active.
+
+If *Check for updates* never seems to do anything, your Home Assistant OS may be
+too old: the Supervisor stops refreshing update information (and blocks adding
+repositories) when the OS is more than about four major releases behind. Look
+under Settings, System, Repairs for "unsupported operating system version" and
+update the OS (`ha os update` from the command line if no update is offered).
+Rebuild works either way.
 
 If macOS Finder fails with error -8062 when copying the folder, copy with
 Terminal instead, with the share mounted:
 `rsync -rt --delete --exclude='.DS_Store' mychron_sync/ /Volumes/addons/mychron_sync/`
 
-**From a repository.** Put this repo on GitHub, change the URLs in
-`repository.yaml` and `mychron_sync/config.yaml`, and add the repository URL in
-the Add-on Store.
+**From a repository.** Put this repo on GitHub (public), then in the Add-on
+Store use the menu, *Repositories*, and add its URL. Uninstall any local copy
+first: both use port 8099 on the host network. Your downloaded sessions are
+unaffected, but you'll need to enter `logger_host` again.
 
 ## Try it on its own first
 
@@ -79,6 +87,9 @@ Verified here, with automated tests:
 - The add-on build and ingress setup (written from the add-on documentation, not run)
 - Whether a Solo 2 DL answers the UDP presence check without an open TCP session
   (`probe: auto` falls back to TCP if it doesn't)
+- Opening real `.xrk` files in Lapline through the add-on (the plumbing is tested
+  end to end, including behind a simulated ingress path, but only with
+  placeholder files, not real logger data)
 - Sessions from older `.hrz` files are inflated the same way as `.xrz`; this
   worked with the reference client but is untested here
 - The logger's behaviour around the settle delay and its Wi-Fi power mode
@@ -89,6 +100,12 @@ The protocol was reverse engineered by TheAngryRaven in
 [mychron-wifi-spec](https://github.com/TheAngryRaven/mychron-wifi-spec). The
 protocol code here is a Go port of that project's Python client, so this project
 is released under the same license, GPL-3.0-or-later (see `LICENSE`).
+
+The optional viewer, Lapline, is by [landonh12](https://github.com/landonh12/Lapline)
+(forked at [jawillis/Lapline](https://github.com/jawillis/Lapline)). It has no
+license file at the time of writing, so its code is **not** included in this
+repository: the Dockerfile fetches it when the add-on is built. Please ask its
+author about licensing before redistributing it.
 
 AiM, MyChron and Race Studio are trademarks of their respective owners. This
 project is not affiliated with or endorsed by AiM Tech.
