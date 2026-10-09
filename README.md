@@ -5,7 +5,8 @@ Solo 2 DL datalogger as soon as it joins your network, for example when you roll
 back into the pits and the logger reconnects to the trailer's Wi-Fi.
 
 - Saves each session as an `.xrk` file on a share you can reach from any computer
-- Opens any session in [Lapline](https://github.com/jawillis/Lapline) (a browser-based AiM log viewer) with one click, or compares several from the same track
+- Opens any session in [Lapline](https://github.com/landonh12/Lapline) (a browser-based AiM and VBOX log viewer) with one click, or compares several from the same track
+- Lists `.vbo` files (VBOX, RaceChrono, Harry's LapTimer, TrackAddict) copied into the share alongside the logger's sessions
 - Shows best lap, length and track for every session, hides the false starts, and marks your best lap at each track
 - Detects the logger coming and going, retries when the logger's Wi-Fi misbehaves
 - Web page in the Home Assistant sidebar, protected by your Home Assistant login
@@ -102,7 +103,7 @@ protocol code here is a Go port of that project's Python client, so this project
 is released under the same license, GPL-3.0-or-later (see `LICENSE`).
 
 The optional viewer, Lapline, is by [landonh12](https://github.com/landonh12/Lapline)
-(forked at [jawillis/Lapline](https://github.com/jawillis/Lapline)). It has no
+and is built from that upstream repository. It has no
 license file at the time of writing, so its code is **not** included in this
 repository: the Dockerfile fetches it when the add-on is built. Please ask its
 author about licensing before redistributing it.

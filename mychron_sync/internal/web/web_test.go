@@ -11,7 +11,9 @@ import (
 	"testing"
 
 	"mychron-sync/internal/engine"
+	"mychron-sync/internal/imports"
 	"mychron-sync/internal/store"
+	"mychron-sync/internal/vbo/vbotest"
 )
 
 func newHandler(t *testing.T, allowAny bool) http.Handler {
@@ -100,7 +102,7 @@ func TestFilesServeOnlyWhatTheManifestLists(t *testing.T) {
 	if r := get(h, "/files/a_0001_Hallett.xrk", ha); r.Code != 200 || r.Body.String() != "0123456789" {
 		t.Fatalf("listed file: %d %q", r.Code, r.Body.String())
 	}
-	if r := get(h, "/files/a_0001_Hallett.xrk?download=1", ha); !strings.Contains(r.Header().Get("Content-Disposition"), `attachment; filename="a_0001_Hallett.xrk"`) {
+	if r := get(h, "/files/a_0001_Hallett.xrk?download=1", ha); r.Header().Get("Content-Disposition") != "attachment; filename=a_0001_Hallett.xrk" {
 		t.Fatalf("download header: %q", r.Header().Get("Content-Disposition"))
 	}
 	if r := get(h, "/files/a_0001_Hallett.xrk", ha, "Range", "bytes=2-4"); r.Code != 206 || r.Body.String() != "234" {
@@ -173,6 +175,56 @@ func TestLaplineAbsentIsHandledQuietly(t *testing.T) {
 		}
 		if st := get(h, "/api/status", ha).Body.String(); !strings.Contains(st, `"lapline":false`) {
 			t.Errorf("dir %q: status %s", dir, st)
+		}
+	}
+}
+
+func TestImportedVBOFilesAreListedAndServed(t *testing.T) {
+	dir := t.TempDir()
+	man, err := store.Open(filepath.Join(dir, ".mychron-sync", "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "a_0001_Hallett.xrk"), []byte("xrk"), 0o644)
+	man.Add(store.Entry{Name: "a_0001.xrz", ID: 1, File: "a_0001_Hallett.xrk", Status: store.StatusOK})
+	os.MkdirAll(filepath.Join(dir, "RaceChrono"), 0o755)
+	oval := vbotest.Oval("Track: Test Oval", true)
+	os.WriteFile(filepath.Join(dir, "RaceChrono", "Oval run #1.vbo"), oval, 0o644)
+	os.WriteFile(filepath.Join(dir, "RaceChrono", "notes.txt"), []byte("private"), 0o644)
+	idx := imports.New(dir, nil)
+	idx.Refresh()
+	h := New(Deps{Engine: engine.New(engine.Config{OutputDir: dir}, man), Manifest: man, Version: "t", FilesDir: dir, Imports: idx})
+
+	body := get(h, "/api/sessions", ha).Body.String()
+	for _, want := range []string{`"file":"RaceChrono/Oval run #1.vbo"`, `"source":"vbo"`, `"track_shown":"Test Oval"`, `"file":"a_0001_Hallett.xrk"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("sessions missing %s:\n%s", want, body)
+		}
+	}
+	if st := get(h, "/api/status", ha).Body.String(); !strings.Contains(st, `"imports":1`) {
+		t.Errorf("status should report the imports generation: %s", st)
+	}
+
+	// The page encodes each path segment; both that and an encoded slash work.
+	for _, p := range []string{"/files/RaceChrono/Oval%20run%20%231.vbo", "/files/RaceChrono%2FOval%20run%20%231.vbo"} {
+		r := get(h, p, ha)
+		if r.Code != 200 || r.Body.Len() != len(oval) {
+			t.Errorf("%s = %d (%d bytes)", p, r.Code, r.Body.Len())
+		}
+	}
+	r := get(h, "/files/RaceChrono/Oval%20run%20%231.vbo?download=1", ha)
+	if cd := r.Header().Get("Content-Disposition"); cd != `attachment; filename="Oval run #1.vbo"` {
+		t.Errorf("download header %q", cd)
+	}
+	for _, p := range []string{
+		"/files/RaceChrono/notes.txt", // next to an imported file, but not a session
+		"/files/RaceChrono/../a_0001_Hallett.xrk",
+		"/files/RaceChrono/..%2F..%2Fetc%2Fpasswd",
+		"/files/RaceChrono/",
+		"/files/.mychron-sync/manifest.json",
+	} {
+		if r := get(h, p, ha); r.Code != 404 && r.Code != 301 {
+			t.Errorf("%s = %d, want 404", p, r.Code)
 		}
 	}
 }

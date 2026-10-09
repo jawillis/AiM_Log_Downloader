@@ -11,6 +11,7 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"strings"
 
 	"mychron-sync/internal/engine"
+	"mychron-sync/internal/imports"
 	"mychron-sync/internal/store"
 )
 
@@ -38,8 +40,10 @@ type Deps struct {
 	// AllowAny disables the ingress-gateway check. Only for local development.
 	AllowAny bool
 	// FilesDir is where saved sessions live. Only files listed in the
-	// manifest are served, read-only, at /files/<name>.
+	// manifest or in Imports are served, read-only, at /files/<path>.
 	FilesDir string
+	// Imports lists .vbo files copied into FilesDir by hand. Optional.
+	Imports *imports.Index
 	// LaplineDir is a checkout of the Lapline viewer. It is served at /lapline/
 	// when it contains an index.html; empty or missing disables it.
 	LaplineDir string
@@ -63,10 +67,10 @@ func New(d Deps) http.Handler {
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"version": d.Version, "status": d.Engine.Status(), "lapline": d.laplineEnabled()})
+		writeJSON(w, map[string]any{"version": d.Version, "status": d.Engine.Status(), "lapline": d.laplineEnabled(), "imports": d.importsGeneration()})
 	})
 	mux.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"sessions": enrich(d.Manifest.List())})
+		writeJSON(w, map[string]any{"sessions": enrich(d.allSessions())})
 	})
 	mux.HandleFunc("POST /api/sync", func(w http.ResponseWriter, r *http.Request) {
 		d.Engine.SyncNow()
@@ -80,7 +84,7 @@ func New(d Deps) http.Handler {
 		d.Engine.SetPaused(false)
 		writeJSON(w, map[string]any{"ok": true})
 	})
-	mux.HandleFunc("GET /files/{name}", d.serveSession)
+	mux.HandleFunc("GET /files/{path...}", d.serveSession)
 	if d.laplineEnabled() {
 		// Relative redirect: an absolute one would drop Home Assistant's ingress prefix.
 		mux.HandleFunc("GET /lapline", func(w http.ResponseWriter, r *http.Request) {
@@ -123,25 +127,57 @@ func (d Deps) laplineIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-// serveSession serves one saved session, but only if the manifest lists it.
-func (d Deps) serveSession(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if d.FilesDir == "" || name == "" || filepath.Base(name) != name || strings.HasPrefix(name, ".") {
-		http.NotFound(w, r)
-		return
+// allSessions is the manifest plus any imported files.
+func (d Deps) allSessions() []store.Entry {
+	all := d.Manifest.List()
+	if d.Imports != nil {
+		all = append(all, d.Imports.List()...)
 	}
-	known := false
+	return all
+}
+
+// importsGeneration changes whenever imported files are added, changed or
+// removed, so the page knows to reload the list.
+func (d Deps) importsGeneration() int {
+	if d.Imports == nil {
+		return 0
+	}
+	return d.Imports.Generation()
+}
+
+// known reports whether rel (relative to FilesDir, forward slashes) is a
+// session the page lists. Nothing else on the share is ever served.
+func (d Deps) known(rel string) bool {
 	for _, e := range d.Manifest.List() {
-		if e.File == name {
-			known = true
-			break
+		if e.File == rel {
+			return true
 		}
 	}
-	if !known {
+	return d.Imports != nil && d.Imports.Has(rel)
+}
+
+// safeRel rejects anything that isn't a plain relative path inside FilesDir.
+func safeRel(rel string) bool {
+	if rel == "" || strings.HasPrefix(rel, "/") || strings.Contains(rel, "\\") {
+		return false
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == "" || strings.HasPrefix(seg, ".") {
+			return false
+		}
+	}
+	return true
+}
+
+// serveSession serves one saved or imported session, and nothing else.
+func (d Deps) serveSession(w http.ResponseWriter, r *http.Request) {
+	rel := r.PathValue("path")
+	if d.FilesDir == "" || !safeRel(rel) || !d.known(rel) {
 		http.NotFound(w, r)
 		return
 	}
-	f, err := os.Open(filepath.Join(d.FilesDir, name))
+	name := filepath.Base(filepath.FromSlash(rel))
+	f, err := os.Open(filepath.Join(d.FilesDir, filepath.FromSlash(rel)))
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -155,7 +191,7 @@ func (d Deps) serveSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Cache-Control", "private, max-age=3600") // saved sessions never change
 	if r.URL.Query().Get("download") != "" {
-		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 	}
 	http.ServeContent(w, r, name, st.ModTime(), f)
 }

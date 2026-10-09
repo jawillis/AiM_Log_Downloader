@@ -64,10 +64,29 @@ column the logger reports) are kept in `.mychron-sync/manifest.json`. Sessions
 saved by an earlier version are filled in the next time the add-on lists the
 logger, without downloading anything again.
 
+## .vbo files
+
+Racelogic `.vbo` files (from a VBOX, or exported by RaceChrono, Harry's
+LapTimer, TrackAddict and others) are listed next to the logger's sessions.
+Copy them anywhere into the output folder, subfolders included, for example
+`\\homeassistant.local\share\datalogger\RaceChrono\`. They appear within
+about 30 seconds, marked *VBO*.
+
+- **Laps** are timed from the start/finish line in the file's `[laptiming]`
+  section, the same way Lapline times them. A file without one has no lap
+  times, so it is hidden while *Only sessions with a lap time* is ticked.
+- **Track, driver and vehicle** come from `Track:`, `Driver:` and `Vehicle:`
+  lines in the file's `[comments]` if present. Otherwise the track is guessed
+  from position, like logger sessions, so a `.vbo` and an `.xrk` from the same
+  track can be compared in Lapline.
+- **Recorded** is the file's "File created on" date.
+- The files are only read, never changed or moved. Hidden folders and the
+  `raw` folder are skipped. Nothing about them is added to the manifest.
+
 ## Lapline viewer
 
 Each saved session has a **Lapline** link that opens it in
-[Lapline](https://github.com/jawillis/Lapline), a viewer for AiM log files that
+[Lapline](https://github.com/landonh12/Lapline), a viewer for AiM and VBOX log files that
 runs in your browser: track map, lap overlays, time delta, G-G diagram, laps and
 channels tables. The data stays between your browser and Home Assistant.
 
@@ -77,7 +96,7 @@ channels tables. The data stays between your browser and Home Assistant.
 - **Back to the list:** use the *Sessions* button at the top left of Lapline.
 - **Download:** each row also has a **Download** link for the `.xrk` file, handy
   for Race Studio on a computer that can't reach the share. Only sessions
-  saved by this add-on can be downloaded.
+  on the list can be downloaded, never other files on the share.
 - **On a phone** each session shows a Lapline link under its name; selecting
   several sessions to compare is only offered on larger screens.
 - The **Map** tab in Lapline loads its map library and satellite tiles from the
@@ -87,7 +106,7 @@ channels tables. The data stays between your browser and Home Assistant.
   Lapline link, only Download.
 
 Lapline is not part of this add-on's code. It is fetched from
-`github.com/jawillis/Lapline` while the add-on is built, at a specific commit
+`github.com/landonh12/Lapline` while the add-on is built, at a specific commit
 (`LAPLINE_REF` near the top of the Dockerfile). If GitHub can't be reached
 during the build, the add-on installs without it and the Lapline links
 disappear. To pick up a newer Lapline, change `LAPLINE_REF` to the commit (or a

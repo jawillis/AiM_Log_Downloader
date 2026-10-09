@@ -46,6 +46,9 @@ type Entry struct {
 	Status       string    `json:"status"` // "ok" or "raw_only"
 	Note         string    `json:"note,omitempty"`
 	DownloadedAt time.Time `json:"downloaded_at"`
+	// Source is empty for sessions downloaded from the logger, or "vbo" for
+	// .vbo files found in the output folder (those are never in the manifest).
+	Source string `json:"source,omitempty"`
 }
 
 const (

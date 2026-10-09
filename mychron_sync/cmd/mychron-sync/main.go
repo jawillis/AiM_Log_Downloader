@@ -23,6 +23,7 @@ import (
 	"mychron-sync/internal/aim"
 	"mychron-sync/internal/engine"
 	"mychron-sync/internal/ha"
+	"mychron-sync/internal/imports"
 	"mychron-sync/internal/store"
 	"mychron-sync/internal/web"
 )
@@ -157,11 +158,15 @@ func serve(args []string) error {
 	defer stop()
 	go eng.Run(ctx)
 
+	// .vbo files copied anywhere under the output folder join the sessions list.
+	imp := imports.New(opts.OutputDir, log)
+	go imp.Run(ctx, 30*time.Second)
+
 	srv := &http.Server{
 		Addr: addr,
 		Handler: web.New(web.Deps{
 			Engine: eng, Manifest: man, Version: version, AllowAny: *allowAny,
-			FilesDir: opts.OutputDir, LaplineDir: *lapline,
+			FilesDir: opts.OutputDir, LaplineDir: *lapline, Imports: imp,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

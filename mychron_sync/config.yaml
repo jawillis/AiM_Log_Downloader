@@ -1,5 +1,5 @@
 name: MyChron Sync
-version: "0.3.0"
+version: "0.4.0"
 slug: mychron_sync
 description: Downloads new sessions from an AiM MyChron or Solo 2 DL logger whenever it joins the network.
 url: https://github.com/jawillis/AiM_Log_Downloader

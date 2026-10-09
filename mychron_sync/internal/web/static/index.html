@@ -79,6 +79,7 @@
   .linkbtn { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; font: inherit; }
   .sub { display: block; color: var(--muted); font-size: .85rem; }
   .tag.best { border-color: var(--flag-green); }
+  .tag.src { border-color: var(--muted); }
   .none { color: var(--muted); }
   .nowrap { white-space: nowrap; }
   td a { color: var(--link); font-weight: 600; text-decoration: none; margin-right: 12px; }
@@ -175,7 +176,7 @@
         <tr>
           <th class="sel"></th><th>Session</th><th>Track</th><th class="num hide-sm">Laps</th><th class="num">Best lap</th>
           <th class="num hide-sm">Length</th><th>Recorded</th><th class="drv hide-sm">Driver</th>
-          <th class="hide-sm hide-md">Downloaded</th><th class="act">Open</th>
+          <th class="hide-sm hide-md">Added</th><th class="act">Open</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
@@ -193,7 +194,7 @@
     unconfigured: "Logger address not set", paused: "Syncing paused", offline: "Waiting for the logger",
     waiting: "Logger found", syncing: "Downloading", idle: "Up to date", error: "Sync failed"
   };
-  var last = { total: -1, lastSync: null };
+  var last = { total: -1, lastSync: null, imports: -1 };
   var paused = false;
 
   function api(path, opts) { return fetch("api/" + path, opts).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }); }
@@ -214,6 +215,8 @@
     if (p.length !== 3) return e.date || "";
     return p[2] + "-" + p[1] + "-" + p[0] + " " + (e.hour || "").slice(0, 5);
   }
+  // Saved sessions can sit in subfolders (imported .vbo files): encode each part of the path.
+  function fileURL(file) { return "files/" + file.split("/").map(encodeURIComponent).join("/"); }
   function el(tag, text, cls) { var n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; }
 
   function renderStatus(data) {
@@ -246,8 +249,8 @@
     $("fSeen").textContent = s.online ? "Now" : ago(s.last_seen);
     $("foot").textContent = (s.host ? "Logger address " + s.host + ". " : "") + "Version " + data.version + ".";
 
-    if (s.total !== last.total || s.last_sync !== last.lastSync) {
-      last.total = s.total; last.lastSync = s.last_sync;
+    if (s.total !== last.total || s.last_sync !== last.lastSync || data.imports !== last.imports) {
+      last.total = s.total; last.lastSync = s.last_sync; last.imports = data.imports;
       loadSessions();
     }
   }
@@ -333,7 +336,7 @@
     var empty = $("empty");
     empty.hidden = shown.length > 0;
     empty.textContent = all.length === 0
-      ? "No sessions saved yet. When the logger joins the network, everything on it is downloaded, newest first."
+      ? "No sessions saved yet. When the logger joins the network, everything on it is downloaded, newest first. .vbo files copied into the share show up here too."
       : "Every session is hidden by the filters.";
 
     shown.forEach(function (e) {
@@ -349,6 +352,7 @@
       tr.appendChild(csel);
 
       var c1 = el("td", e.name);
+      if (e.source === "vbo") { var sv = el("span", "VBO", "tag src"); sv.title = "A .vbo file found in the share, not downloaded from the logger."; c1.appendChild(sv); }
       c1.appendChild(el("span", e.file + ", " + mb(e.bytes), "file"));
       if (e.status === "ok") { var mo = el("a", "Lapline", "mact"); mo.href = "lapline/?open=" + encodeURIComponent(e.file); c1.appendChild(mo); }
       if (e.status === "raw_only") { var t = el("span", "Saved as received", "tag"); t.title = e.note || ""; c1.appendChild(t); }
@@ -364,11 +368,16 @@
       var cb = el("td", null, "num");
       if (e.best_lap_ms > 0) {
         var tm = el("span", fmtLap(e.best_lap_ms));
-        if (e.best_lap_index) tm.title = "The logger reports lap " + e.best_lap_index + " of " + e.laps + " as the best.";
+        if (e.best_lap_index) tm.title = e.source === "vbo"
+          ? "Lap " + e.best_lap_index + " of " + e.laps + ", timed from the start/finish line in the file, as Lapline times it."
+          : "The logger reports lap " + e.best_lap_index + " of " + e.laps + " as the best.";
         cb.appendChild(tm);
         if (e.track_best) { var tb = el("span", "Track best", "tag best"); tb.title = "Fastest lap saved for " + e.track_shown + "."; cb.appendChild(tb); }
       } else {
-        var no = el("span", "None", "none"); no.title = "The logger did not record a lap time for this session."; cb.appendChild(no);
+        var no = el("span", "None", "none");
+        no.title = e.source === "vbo"
+          ? "This file has no start/finish line, or the car never crossed it, so it has no lap times. Lapline shows it as one long lap."
+          : "The logger did not record a lap time for this session."; cb.appendChild(no);
       }
       cb.appendChild(el("span", (e.laps || "0") + (e.laps === "1" ? " lap" : " laps"), "sub show-sm"));
       tr.appendChild(cb);
@@ -377,16 +386,18 @@
 
       var rec = el("td", null, e.date_suspect ? "unset" : "nowrap");
       if (e.date_suspect) rec.textContent = "Logger clock not set";
+      else if (!e.date) { rec.textContent = "Not in file"; rec.className = "unset"; }
       else { var dh = recorded(e).split(" "); rec.appendChild(document.createTextNode(dh[0])); if (dh[1]) rec.appendChild(el("span", dh[1], "sub")); }
       if (e.date_suspect) rec.title = "The logger reported " + e.date + " " + e.hour + ", which looks like an unset clock.";
       tr.appendChild(rec);
 
       tr.appendChild(el("td", (e.driver || "") + (e.vehicle ? " (" + e.vehicle + ")" : ""), "drv hide-sm"));
-      var dl = el("td", ago(e.downloaded_at), "hide-sm hide-md"); dl.title = new Date(e.downloaded_at).toLocaleString(); tr.appendChild(dl);
+      var dl = el("td", ago(e.downloaded_at), "hide-sm hide-md");
+      dl.title = (e.source === "vbo" ? "File last changed " : "") + new Date(e.downloaded_at).toLocaleString(); tr.appendChild(dl);
 
       var act = el("td", null, "act nowrap");
       if (e.status === "ok") { var o = el("a", "Lapline"); o.href = "lapline/?open=" + encodeURIComponent(e.file); o.title = "View " + e.name + " in Lapline"; act.appendChild(o); }
-      var d = el("a", "Download", "dl"); d.href = "files/" + encodeURIComponent(e.file) + "?download=1"; act.appendChild(d);
+      var d = el("a", "Download", "dl"); d.href = fileURL(e.file) + "?download=1"; act.appendChild(d);
       tr.appendChild(act);
       body.appendChild(tr);
     });

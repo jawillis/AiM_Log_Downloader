@@ -14,8 +14,9 @@ RUN CGO_ENABLED=0 go build -trimpath \
 # To follow a newer Lapline, change LAPLINE_REF (a commit, tag or branch) and Rebuild.
 FROM alpine:3.20 AS lapline
 RUN apk add --no-cache git
-ARG LAPLINE_REPO=https://github.com/jawillis/Lapline.git
-ARG LAPLINE_REF=39e1a345196412620be9a7a93cbcb9252f05e53d
+ARG LAPLINE_REPO=https://github.com/landonh12/Lapline.git
+# 821560a: .vbo support plus collapsible file cards
+ARG LAPLINE_REF=821560a8c281354603f0c17d0a229254a087b4f3
 RUN mkdir /lapline \
  && ( git init -q /src && cd /src \
       && git fetch -q --depth 1 "$LAPLINE_REPO" "$LAPLINE_REF" \
